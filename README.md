@@ -20,6 +20,7 @@ Classify texts at scale with models trained via LLM Tool, or generate text with 
 - **Multi-label classification** — supports binary, multi-class, multi-label, and one-vs-all training modes
 - **Parallel GPU+CPU inference** — hybrid inference for large batches using server-side parallelization
 - **Configurable thresholds** — customize multi-label prediction thresholds
+- **MC Dropout confidence intervals** — estimate prediction uncertainty with per-class CI bounds
 - **Zero-shot NER** — extract entities with custom labels using GLiNER (requires server with `pip install 'infer-api[ner]'`)
   - **Multilingual**: 12+ languages (EN, FR, DE, ES, IT, PT, NL, RU, ZH, JA, AR)
   - **Custom labels**: ANY entity type ("political party", "disease", "product", etc.)
@@ -177,6 +178,14 @@ result = client.infer(text="Economic policy affects markets", model="themes", th
 # Shortcut — returns results list directly
 results = client.classify("Great performance this year")
 results = client.classify(["Good", "Bad", "Neutral"], model="sentiment")
+
+# Inference with MC Dropout confidence intervals
+result = client.infer(text="The economy is booming", model="sentiment", mc_samples=30, ci_level=0.95)
+# result["results"][0]["confidence_interval"] = {"lower": 0.25, "upper": 0.97, "level": 0.95, "mc_samples": 30}
+# result["results"][0]["probabilities_ci"]["sentiment_long_positive"] = {"mean": 0.61, "std": 0.18, "lower": 0.25, "upper": 0.97}
+
+# Shortcut with CI
+results = client.classify("Great news", model="sentiment", mc_samples=30)
 ```
 
 ### DataFrame classification (requires pandas)
@@ -196,6 +205,10 @@ result_df = client.classify_df(df, "text", model="themes", threshold=0.3)
 
 # Parallel inference for large datasets
 result_df = client.classify_df(df, "text", model="sentiment", parallel=True)
+
+# With MC Dropout confidence intervals
+result_df = client.classify_df(df, "text", model="sentiment", mc_samples=30)
+# Adds ci_lower_*, ci_upper_*, ci_level, mc_samples columns
 ```
 
 ### Sentence Segmentation (WTPSPLIT)
@@ -360,6 +373,32 @@ result = ollama.chat("llama3", messages)
   "multi_label": false,
   "num_labels": 3,
   "labels": ["sentiment_long_negative", "sentiment_long_neutral", "sentiment_long_positive"]
+}
+```
+
+### With MC Dropout confidence intervals (`mc_samples > 0`)
+
+```json
+{
+  "results": [
+    {
+      "text": "The economy is booming",
+      "label": "sentiment_long_positive",
+      "confidence": 0.6076,
+      "probabilities": { ... },
+      "confidence_interval": {
+        "lower": 0.2498,
+        "upper": 0.9654,
+        "level": 0.95,
+        "mc_samples": 30
+      },
+      "probabilities_ci": {
+        "sentiment_long_negative": {"mean": 0.2262, "std": 0.1164, "lower": 0.0, "upper": 0.4543},
+        "sentiment_long_neutral": {"mean": 0.1662, "std": 0.0813, "lower": 0.0069, "upper": 0.3254},
+        "sentiment_long_positive": {"mean": 0.6076, "std": 0.1825, "lower": 0.2498, "upper": 0.9654}
+      }
+    }
+  ]
 }
 ```
 
