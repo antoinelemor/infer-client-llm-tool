@@ -112,6 +112,8 @@ class InferClient:
         parallel: bool = False,
         device_mode: str = "both",
         threshold: Optional[float] = None,
+        mc_samples: int = 0,
+        ci_level: float = 0.95,
     ) -> Dict[str, Any]:
         """Run inference on one or more texts.
 
@@ -125,11 +127,15 @@ class InferClient:
             parallel: Use parallel GPU+CPU inference (for large batches).
             device_mode: Device mode for parallel: 'cpu', 'gpu', or 'both'.
             threshold: Override multi-label threshold (0.0-1.0).
+            mc_samples: MC Dropout forward passes for confidence intervals (0=disabled).
+            ci_level: Confidence interval level (default 0.95 for 95% CI).
 
         Returns:
             Dict with 'results', 'count', 'model_type', 'model_id',
             and for classification: 'training_mode', 'multi_label',
             'multi_label_threshold', 'num_labels', 'labels'.
+            When mc_samples > 0, results include 'confidence_interval'
+            and 'probabilities_ci' fields.
         """
         if text is None and texts is None:
             raise ValueError("Provide 'text' or 'texts'")
@@ -151,6 +157,11 @@ class InferClient:
         if threshold is not None:
             payload["threshold"] = threshold
 
+        # MC Dropout confidence intervals
+        if mc_samples > 0:
+            payload["mc_samples"] = mc_samples
+            payload["ci_level"] = ci_level
+
         if model:
             url = f"{self.base_url}/models/{model}/infer"
         else:
@@ -166,16 +177,21 @@ class InferClient:
         model: Optional[str] = None,
         threshold: Optional[float] = None,
         parallel: bool = False,
+        mc_samples: int = 0,
+        ci_level: float = 0.95,
     ) -> List[Dict[str, Any]]:
         """Shortcut: classify and return just the results list.
 
         For multi-label models, each result contains 'labels' (list) instead of 'label'.
         Use threshold to override the model's default multi-label threshold.
+
+        When mc_samples > 0, each result includes 'confidence_interval'
+        and 'probabilities_ci' with mean/std/lower/upper per class.
         """
         if isinstance(text, str):
-            resp = self.infer(text=text, model=model, threshold=threshold, parallel=parallel)
+            resp = self.infer(text=text, model=model, threshold=threshold, parallel=parallel, mc_samples=mc_samples, ci_level=ci_level)
         else:
-            resp = self.infer(texts=text, model=model, threshold=threshold, parallel=parallel)
+            resp = self.infer(texts=text, model=model, threshold=threshold, parallel=parallel, mc_samples=mc_samples, ci_level=ci_level)
         return resp["results"]
 
     def segment_sentences(
@@ -376,6 +392,8 @@ class InferClient:
         batch_size: int = 32,
         threshold: Optional[float] = None,
         parallel: bool = False,
+        mc_samples: int = 0,
+        ci_level: float = 0.95,
         on_batch_done: Optional[Callable[[int, int], None]] = None,
     ) -> Any:
         """Classify all rows of a DataFrame.
@@ -387,6 +405,9 @@ class InferClient:
             Adds columns: ``labels`` (list), ``label_count``, ``threshold``,
             and ``prob_<label>`` per class.
 
+        When mc_samples > 0, also adds ``ci_lower_<label>`` and ``ci_upper_<label>``
+        columns for each class, plus ``ci_level`` and ``mc_samples`` columns.
+
         Requires ``pandas`` (install with ``pip install infer-client[pandas]``).
 
         Args:
@@ -396,6 +417,8 @@ class InferClient:
             batch_size: Batch size for API calls.
             threshold: Override multi-label threshold (0.0-1.0).
             parallel: Use parallel GPU+CPU inference.
+            mc_samples: MC Dropout forward passes for confidence intervals (0=disabled).
+            ci_level: Confidence interval level (default 0.95).
             on_batch_done: Optional callback ``(processed_so_far, total)``
                 called after each batch completes.
 
@@ -424,6 +447,8 @@ class InferClient:
                 batch_size=batch_size,
                 threshold=threshold,
                 parallel=parallel,
+                mc_samples=mc_samples,
+                ci_level=ci_level,
             )
             all_results.extend(resp["results"])
             multi_label = resp.get("multi_label", False)
@@ -448,6 +473,15 @@ class InferClient:
             for key in prob_keys:
                 out[f"prob_{key}"] = [r["probabilities"].get(key, 0.0) for r in all_results]
 
+        # Add CI columns when mc_samples > 0
+        if mc_samples > 0 and all_results and "probabilities_ci" in all_results[0]:
+            ci_keys = sorted(all_results[0]["probabilities_ci"].keys())
+            for key in ci_keys:
+                out[f"ci_lower_{key}"] = [r["probabilities_ci"][key]["lower"] for r in all_results]
+                out[f"ci_upper_{key}"] = [r["probabilities_ci"][key]["upper"] for r in all_results]
+            out["ci_level"] = ci_level
+            out["mc_samples"] = mc_samples
+
         return out
 
     def classify_csv(
@@ -459,6 +493,8 @@ class InferClient:
         batch_size: int = 32,
         threshold: Optional[float] = None,
         parallel: bool = False,
+        mc_samples: int = 0,
+        ci_level: float = 0.95,
         on_batch_done: Optional[Callable[[int, int], None]] = None,
     ) -> str:
         """Classify a CSV file and write results to a new CSV.
@@ -495,6 +531,8 @@ class InferClient:
             batch_size=batch_size,
             threshold=threshold,
             parallel=parallel,
+            mc_samples=mc_samples,
+            ci_level=ci_level,
             on_batch_done=on_batch_done,
         )
 
