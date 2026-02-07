@@ -381,6 +381,60 @@ class InferClient:
         return r.json()
 
     # ──────────────────────────────────────────────
+    # Translation (auth required, TranslateGemma)
+    # ──────────────────────────────────────────────
+
+    def translate(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        model: str = "translategemma:12b",
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Translate text using TranslateGemma on the server.
+
+        Args:
+            text: The text to translate.
+            source_lang: Source language code (e.g. "en", "fr", "zh-Hans").
+            target_lang: Target language code (e.g. "fr", "en", "es").
+            model: TranslateGemma model variant (default: "translategemma:12b").
+            options: Model options (temperature, top_p, etc.).
+
+        Returns:
+            Dict with 'translation', 'source_lang', 'target_lang', etc.
+        """
+        payload: Dict[str, Any] = {
+            "text": text,
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "model": model,
+        }
+        if options:
+            payload["options"] = options
+
+        r = self._session.post(
+            f"{self.base_url}/ollama/translate",
+            json=payload,
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def translate_languages(self) -> List[Dict[str, str]]:
+        """List languages supported by TranslateGemma.
+
+        Returns:
+            List of dicts with 'code' and 'name' keys.
+        """
+        r = self._session.get(
+            f"{self.base_url}/ollama/translate/languages",
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json().get("languages", [])
+
+    # ──────────────────────────────────────────────
     # DataFrame / CSV helpers (require pandas)
     # ──────────────────────────────────────────────
 

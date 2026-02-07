@@ -28,6 +28,7 @@ Classify texts at scale with models trained via LLM Tool, or generate text with 
 
 ### Generation & Integration
 - **Ollama integration** — generate text and chat with local LLMs (llama3, mistral, phi3, etc.)
+- **TranslateGemma** — translate text between 130+ languages via the server or locally
 - **Rich CLI** — ASCII art banner, colored panels, progress bars with ETA and rows/s
 - **CSV classification** — batch-process entire datasets with real-time progress tracking
 - **DataFrame integration** — classify pandas DataFrames with automatic column enrichment
@@ -346,6 +347,38 @@ print(result["response"])
 messages = result["messages"]
 messages.append({"role": "user", "content": "And R?"})
 result = ollama.chat("llama3", messages)
+```
+
+## Translation (TranslateGemma)
+
+### Server-side translation (via API)
+
+```python
+# Translate English to French
+result = client.translate("The economy is growing steadily", source_lang="en", target_lang="fr")
+print(result["translation"])  # "L'économie croît de manière constante"
+
+# Translate with regional variant
+result = client.translate("Hello world", source_lang="en", target_lang="zh-Hans")
+
+# List supported languages
+languages = client.translate_languages()
+print(f"{len(languages)} languages supported")
+```
+
+### Local translation (direct Ollama)
+
+```python
+from infer_client import OllamaClient
+
+ollama = OllamaClient()
+
+# Translate locally
+result = ollama.translate("Bonjour le monde", source_lang="fr", target_lang="en")
+print(result["translation"])  # "Hello world"
+
+# List supported languages
+languages = OllamaClient.translate_languages()
 ```
 
 ## Response format
