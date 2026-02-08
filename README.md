@@ -113,6 +113,13 @@ client = InferClient(
     base_url="https://your-server.example.com",
     api_key="YOUR_API_KEY",
 )
+
+# With password authentication (if required by your API key)
+client = InferClient(
+    base_url="https://your-server.example.com",
+    api_key="YOUR_API_KEY",
+    api_password="YOUR_PASSWORD",
+)
 ```
 
 ### Health check (no auth)

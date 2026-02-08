@@ -19,18 +19,23 @@ class InferClient:
         self,
         base_url: str,
         api_key: str,
+        api_password: str = "",
         timeout: int = 600,
         verify_ssl: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.api_password = api_password
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self._session = requests.Session()
-        self._session.headers.update({
+        headers = {
             "X-API-Key": self.api_key,
             "Content-Type": "application/json",
-        })
+        }
+        if self.api_password:
+            headers["X-API-Password"] = self.api_password
+        self._session.headers.update(headers)
         self._session.verify = self.verify_ssl
 
     # ──────────────────────────────────────────────
