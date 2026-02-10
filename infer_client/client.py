@@ -426,6 +426,50 @@ class InferClient:
         r.raise_for_status()
         return r.json()
 
+    def translate_batch(
+        self,
+        texts: List[str],
+        source_lang: str,
+        target_lang: str,
+        model: str = "translategemma:12b",
+        options: Optional[Dict[str, Any]] = None,
+        delay_ms: int = 200,
+    ) -> Dict[str, Any]:
+        """Translate a batch of texts with server-side pacing.
+
+        The server translates each text sequentially with a configurable
+        delay between Ollama calls to prevent runner deadlock on Metal.
+
+        Args:
+            texts: List of texts to translate.
+            source_lang: Source language code (e.g. "en", "fr").
+            target_lang: Target language code.
+            model: TranslateGemma model variant (default: "translategemma:12b").
+            options: Optional model parameters (temperature, top_p, etc.).
+            delay_ms: Delay between Ollama calls in ms (default: 200).
+
+        Returns:
+            Dict with 'translations' (list), 'source_lang', 'target_lang',
+            'model', 'count', 'errors'.
+        """
+        payload: Dict[str, Any] = {
+            "texts": texts,
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "model": model,
+            "delay_ms": delay_ms,
+        }
+        if options:
+            payload["options"] = options
+
+        r = self._session.post(
+            f"{self.base_url}/ollama/translate/batch",
+            json=payload,
+            timeout=max(self.timeout, 60 + len(texts) * 15),
+        )
+        r.raise_for_status()
+        return r.json()
+
     def translate_languages(self) -> List[Dict[str, str]]:
         """List languages supported by TranslateGemma.
 

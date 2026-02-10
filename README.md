@@ -395,6 +395,20 @@ languages = client.translate_languages()
 print(f"{len(languages)} languages supported")
 ```
 
+### Batch translation with pacing (via API)
+
+```python
+# Translate multiple texts in one call — server-side pacing prevents Ollama deadlock
+result = client.translate_batch(
+    texts=["The economy is growing", "Markets are stable", "Inflation is rising"],
+    source_lang="en",
+    target_lang="fr",
+    delay_ms=200,  # 200ms between Ollama calls (default)
+)
+print(result["translations"])  # ["L'économie est en croissance", ...]
+print(result["count"])         # 3
+```
+
 ### Local translation (direct Ollama)
 
 ```python
