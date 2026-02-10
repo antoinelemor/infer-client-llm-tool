@@ -3,5 +3,5 @@
 from .client import InferClient
 from .ollama import OllamaClient
 
-__version__ = "1.2.0"
+__version__ = "1.5.0"
 __all__ = ["InferClient", "OllamaClient"]
