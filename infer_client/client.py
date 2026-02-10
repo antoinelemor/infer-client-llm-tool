@@ -602,5 +602,136 @@ class InferClient:
         result_df.to_csv(output_path, index=False)
         return output_path
 
+    # ──────────────────────────────────────────────
+    # NER DataFrame / CSV helpers
+    # ──────────────────────────────────────────────
+
+    def extract_entities_df(
+        self,
+        df: Any,
+        text_column: str,
+        labels: List[str],
+        model: str = "gliner",
+        threshold: float = 0.5,
+        flat_ner: bool = True,
+        on_batch_done: Optional[Callable[[int, int], None]] = None,
+    ) -> Any:
+        """Extract entities from all rows of a DataFrame.
+
+        Sends all texts to the server in a single call (the server handles
+        batching and parallelization automatically).
+
+        Adds columns:
+        - ``entities``: JSON string of extracted entities
+        - ``entity_count``: Number of entities found
+        - ``has_<label>``: Boolean column for each requested label
+
+        Requires ``pandas`` (install with ``pip install infer-client[pandas]``).
+
+        Args:
+            df: pandas DataFrame.
+            text_column: Name of the column containing texts.
+            labels: Entity types to extract (e.g., ["person", "location"]).
+            model: NER model ID (default: "gliner").
+            threshold: Confidence threshold (0.0-1.0).
+            flat_ner: Resolve overlapping entities.
+            on_batch_done: Optional callback ``(processed, total)``
+                called when the server response arrives.
+
+        Returns:
+            A copy of the DataFrame with entity columns added.
+        """
+        try:
+            import pandas as pd
+            import json as _json
+        except ImportError:
+            raise ImportError(
+                "pandas is required for extract_entities_df(). "
+                "Install with: pip install infer-client[pandas]"
+            )
+
+        texts = df[text_column].astype(str).tolist()
+        total = len(texts)
+
+        # Send all texts in one call — server handles batch/parallel
+        all_results = self.extract_entities(
+            text=texts,
+            labels=labels,
+            model=model,
+            threshold=threshold,
+            flat_ner=flat_ner,
+        )
+
+        if on_batch_done is not None:
+            on_batch_done(total, total)
+
+        out = df.copy()
+        out["entities"] = [_json.dumps(r.get("entities", []), ensure_ascii=False) for r in all_results]
+        out["entity_count"] = [r.get("entity_count", 0) for r in all_results]
+
+        # Add has_<label> boolean columns
+        for label in labels:
+            col_name = f"has_{label.replace(' ', '_')}"
+            out[col_name] = [
+                any(e.get("label") == label for e in r.get("entities", []))
+                for r in all_results
+            ]
+
+        return out
+
+    def extract_entities_csv(
+        self,
+        input_path: str,
+        text_column: str,
+        labels: List[str],
+        output_path: Optional[str] = None,
+        model: str = "gliner",
+        threshold: float = 0.5,
+        flat_ner: bool = True,
+        on_batch_done: Optional[Callable[[int, int], None]] = None,
+    ) -> str:
+        """Extract entities from a CSV file and write results to a new CSV.
+
+        Requires ``pandas`` (install with ``pip install infer-client[pandas]``).
+
+        Args:
+            input_path: Path to the input CSV file.
+            text_column: Name of the column containing texts.
+            labels: Entity types to extract.
+            output_path: Path for output CSV. Defaults to ``<input>_entities.csv``.
+            model: NER model ID (default: "gliner").
+            threshold: Confidence threshold (0.0-1.0).
+            flat_ner: Resolve overlapping entities.
+            on_batch_done: Optional callback ``(processed, total)``.
+
+        Returns:
+            Path to the output CSV file.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for extract_entities_csv(). "
+                "Install with: pip install infer-client[pandas]"
+            )
+
+        df = pd.read_csv(input_path)
+        result_df = self.extract_entities_df(
+            df,
+            text_column,
+            labels=labels,
+            model=model,
+            threshold=threshold,
+            flat_ner=flat_ner,
+            on_batch_done=on_batch_done,
+        )
+
+        if output_path is None:
+            stem = input_path.rsplit(".", 1)[0]
+            output_path = f"{stem}_entities.csv"
+
+        result_df.to_csv(output_path, index=False)
+        return output_path
+
     def __repr__(self) -> str:
         return f"InferClient(base_url={self.base_url!r})"

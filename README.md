@@ -310,6 +310,28 @@ for result in results:
 
 **Note**: GLiNER2 supports 2048 token context (4x larger than GLiNER v1) for longer documents. Use `model="gliner2"` to access.
 
+### DataFrame NER (requires pandas)
+
+```python
+import pandas as pd
+
+df = pd.DataFrame({"text": [
+    "Apple Inc. was founded by Steve Jobs in Cupertino",
+    "Microsoft acquired GitHub in 2018",
+]})
+
+# Extract entities into the DataFrame
+result_df = client.extract_entities_df(df, "text", labels=["person", "organization", "location"])
+# Columns: text, entities (JSON), entity_count, has_person, has_organization, has_location
+```
+
+### CSV NER (requires pandas)
+
+```python
+output_path = client.extract_entities_csv("data.csv", "text", labels=["person", "organization"])
+# Writes data_entities.csv with entity columns
+```
+
 ### CSV classification (requires pandas)
 
 ```python
