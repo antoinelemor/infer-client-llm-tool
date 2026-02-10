@@ -434,11 +434,14 @@ class InferClient:
         model: str = "translategemma:12b",
         options: Optional[Dict[str, Any]] = None,
         delay_ms: int = 200,
+        chunk_size: int = 8,
     ) -> Dict[str, Any]:
         """Translate a batch of texts with server-side pacing.
 
         The server translates each text sequentially with a configurable
         delay between Ollama calls to prevent runner deadlock on Metal.
+        Texts are automatically chunked into groups of ``chunk_size`` to
+        stay within proxy timeout limits (e.g. Cloudflare 100s).
 
         Args:
             texts: List of texts to translate.
@@ -447,28 +450,50 @@ class InferClient:
             model: TranslateGemma model variant (default: "translategemma:12b").
             options: Optional model parameters (temperature, top_p, etc.).
             delay_ms: Delay between Ollama calls in ms (default: 200).
+            chunk_size: Max texts per HTTP call (default: 8).
 
         Returns:
             Dict with 'translations' (list), 'source_lang', 'target_lang',
             'model', 'count', 'errors'.
         """
-        payload: Dict[str, Any] = {
-            "texts": texts,
-            "source_lang": source_lang,
-            "target_lang": target_lang,
-            "model": model,
-            "delay_ms": delay_ms,
-        }
-        if options:
-            payload["options"] = options
+        all_translations: List[str] = []
+        all_errors: List[str] = []
+        result_meta: Dict[str, Any] = {}
 
-        r = self._session.post(
-            f"{self.base_url}/ollama/translate/batch",
-            json=payload,
-            timeout=max(self.timeout, 60 + len(texts) * 15),
-        )
-        r.raise_for_status()
-        return r.json()
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i : i + chunk_size]
+            payload: Dict[str, Any] = {
+                "texts": chunk,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "model": model,
+                "delay_ms": delay_ms,
+            }
+            if options:
+                payload["options"] = options
+
+            r = self._session.post(
+                f"{self.base_url}/ollama/translate/batch",
+                json=payload,
+                timeout=90,
+            )
+            r.raise_for_status()
+            data = r.json()
+            all_translations.extend(data.get("translations", chunk))
+            all_errors.extend(data.get("errors", []))
+            if not result_meta:
+                result_meta = {
+                    "source_lang": data.get("source_lang", source_lang),
+                    "target_lang": data.get("target_lang", target_lang),
+                    "model": data.get("model", model),
+                }
+
+        return {
+            **result_meta,
+            "translations": all_translations,
+            "count": len(all_translations),
+            "errors": all_errors,
+        }
 
     def translate_languages(self) -> List[Dict[str, str]]:
         """List languages supported by TranslateGemma.
