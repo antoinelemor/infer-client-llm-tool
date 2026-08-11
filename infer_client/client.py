@@ -199,6 +199,145 @@ class InferClient:
             resp = self.infer(texts=text, model=model, threshold=threshold, parallel=parallel, mc_samples=mc_samples, ci_level=ci_level)
         return resp["results"]
 
+    # ──────────────────────────────────────────────
+    # One-vs-all binary model families (cap_theme_*, party_*)
+    # ──────────────────────────────────────────────
+
+    def binary_heads(
+        self,
+        prefix: str = "cap_theme_",
+        refresh: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Discover the heads of a binary model family and their thresholds.
+
+        Lists the models whose id starts with ``prefix`` and fetches each
+        head's calibrated decision threshold from its metadata
+        (``multi_label_threshold``). Cached on the client for the session.
+
+        Returns:
+            List of dicts with 'model_id', 'category', 'threshold'.
+        """
+        cache = getattr(self, "_binary_heads_cache", None)
+        if cache is None:
+            cache = self._binary_heads_cache = {}
+        if not refresh and prefix in cache:
+            return cache[prefix]
+        ids = sorted(
+            m["model_id"] for m in self.models()
+            if str(m.get("model_id", "")).startswith(prefix)
+        )
+        if not ids:
+            raise ValueError(f"No model with prefix {prefix!r} is served by the API")
+        heads = []
+        for mid in ids:
+            info = self.model_info(mid)
+            try:
+                threshold = float(info.get("multi_label_threshold") or 0.5)
+            except (TypeError, ValueError):
+                threshold = 0.5
+            heads.append({
+                "model_id": mid,
+                "category": mid[len(prefix):],
+                "threshold": threshold,
+            })
+        cache[prefix] = heads
+        return heads
+
+    def classify_binary_family(
+        self,
+        texts: List[str],
+        prefix: str = "cap_theme_",
+        heads: Optional[List[str]] = None,
+        chunk_size: int = 64,
+        max_workers: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Classify texts against every head of a binary model family.
+
+        One request per (head, chunk) pair, all in flight through a thread
+        pool; different heads run in parallel on the server (one lock per
+        model). Each head's calibrated threshold is applied to the
+        positive-class probability. Chunks are capped at 100 texts per
+        request: beyond that the server switches to a parallel engine that
+        degrades sharply.
+
+        Args:
+            texts: Texts to classify.
+            prefix: Model id prefix of the family (default "cap_theme_").
+            heads: Optional subset of model ids.
+            chunk_size: Texts per request (default 64, measured optimum).
+            max_workers: Max requests in flight (default 8).
+
+        Returns:
+            Flat list of dicts: 'text_index', 'model_id', 'category',
+            'score' (positive-class probability) and 'decision' (score at
+            or above the head's calibrated threshold), sorted by
+            (text_index, category).
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if not texts:
+            return []
+        chunk_size = min(int(chunk_size), 100)
+        family = self.binary_heads(prefix)
+        if heads is not None:
+            wanted = set(heads)
+            family = [h for h in family if h["model_id"] in wanted]
+            if not family:
+                raise ValueError("No matching head")
+
+        chunks = [
+            list(range(i, min(i + chunk_size, len(texts))))
+            for i in range(0, len(texts), chunk_size)
+        ]
+
+        def job(head: Dict[str, Any], idx: List[int]) -> List[Dict[str, Any]]:
+            resp = self.infer(texts=[texts[i] for i in idx], model=head["model_id"])
+            preds = resp.get("results") or resp.get("predictions") or []
+            rows = []
+            for j, i in enumerate(idx):
+                score: Optional[float] = None
+                if j < len(preds):
+                    probs = preds[j].get("probabilities") or {}
+                    if "1" in probs:
+                        score = float(probs["1"])
+                    elif preds[j].get("confidence") is not None:
+                        score = float(preds[j]["confidence"])
+                rows.append({
+                    "text_index": i,
+                    "model_id": head["model_id"],
+                    "category": head["category"],
+                    "score": score,
+                    "decision": score is not None and score >= head["threshold"],
+                })
+            return rows
+
+        rows: List[Dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(job, h, idx) for h in family for idx in chunks]
+            for fut in as_completed(futures):
+                rows.extend(fut.result())
+        rows.sort(key=lambda r: (r["text_index"], r["category"]))
+        return rows
+
+    def classify_cap_themes(
+        self,
+        texts: List[str],
+        heads: Optional[List[str]] = None,
+        chunk_size: int = 64,
+        max_workers: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Classify texts against the 21 CAP theme heads.
+
+        Convenience wrapper around :meth:`classify_binary_family` with
+        ``prefix="cap_theme_"``. The heads' thresholds were calibrated on
+        the 4-annotator press benchmark, so decisions are tuned for
+        vitrine/news text.
+        """
+        return self.classify_binary_family(
+            texts, prefix="cap_theme_", heads=heads,
+            chunk_size=chunk_size, max_workers=max_workers,
+        )
+
     def segment_sentences(
         self,
         text: Union[str, List[str]],

@@ -540,3 +540,22 @@ INFER_KEY="YOUR_API_KEY" make test
 ## License
 
 MIT
+
+
+## CAP theme heads (one-vs-all families)
+
+```python
+from infer_client import InferClient
+client = InferClient(os.environ["INFER_API_URL"], api_key=os.environ["INFER_API_KEY"])
+rows = client.classify_cap_themes(texts)
+# rows: text_index | model_id | category | score | decision
+detected = [r["category"] for r in rows if r["decision"]]
+
+# Generic form (any family, e.g. parties later):
+rows = client.classify_binary_family(texts, prefix="party_")
+```
+
+Each head's calibrated decision threshold is fetched from the model
+metadata and applied to the positive-class probability. Keep the default
+``chunk_size=64``: beyond 100 texts per request the server degrades
+sharply (capped at 100 internally).
